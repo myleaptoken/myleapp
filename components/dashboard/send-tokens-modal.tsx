@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Search, Send, AlertCircle, CheckCircle2 } from "lucide-react"
+import { Search, Send, AlertCircle, CheckCircle2, Info } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { useAuth } from "@/hooks/use-auth"
 
@@ -37,6 +37,46 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
   const [debugInfo, setDebugInfo] = useState<any>(null)
+
+  // Función para detectar y convertir balance
+  const getBalanceInLeap = (balance: number): number => {
+    // Si el balance es muy grande (>= 10 millones), está en formato atómico
+    if (balance >= 10000000) {
+      return balance / 1000000000
+    }
+    // Si es menor, ya está en formato LEAP
+    return balance
+  }
+
+  // Función para formatear números grandes
+  const formatNumber = (num: number): string => {
+    if (num >= 1000000000) {
+      return (
+        (num / 1000000000).toLocaleString(undefined, {
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 9,
+        }) + "B"
+      )
+    } else if (num >= 1000000) {
+      return (
+        (num / 1000000).toLocaleString(undefined, {
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 6,
+        }) + "M"
+      )
+    } else if (num >= 1000) {
+      return (
+        (num / 1000).toLocaleString(undefined, {
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 3,
+        }) + "K"
+      )
+    }
+    return num.toLocaleString(undefined, {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 9,
+    })
+  }
 
   const searchUsers = async (query: string) => {
     if (!query.trim()) {
@@ -90,14 +130,19 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
     }
 
     // Calcular el balance disponible en LEAP
-    // Si el balance es muy grande (>= 10 millones), está en formato atómico
-    const availableBalanceLeap = currentBalance >= 10000000 ? currentBalance / 1000000000 : currentBalance
+    const availableBalanceLeap = getBalanceInLeap(currentBalance)
 
     // Validación básica en el frontend
     if (transferAmount > availableBalanceLeap) {
       setError(
-        `Insufficient balance. Available: ${availableBalanceLeap.toLocaleString()} LEAP, trying to send: ${transferAmount} LEAP`,
+        `Insufficient balance. Available: ${formatNumber(availableBalanceLeap)} LEAP, trying to send: ${formatNumber(transferAmount)} LEAP`,
       )
+      return
+    }
+
+    // Validación de monto máximo razonable (evitar errores de overflow)
+    if (transferAmount > 1000000) {
+      setError("Transfer amount too large. Maximum allowed: 1,000,000 LEAP")
       return
     }
 
@@ -106,6 +151,7 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
       currentBalance,
       availableBalanceLeap,
       isValid: transferAmount <= availableBalanceLeap,
+      balanceFormat: currentBalance >= 10000000 ? "atomic" : "LEAP",
     })
 
     setIsTransferring(true)
@@ -132,7 +178,7 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
 
       if (result.success) {
         setSuccess(
-          `Successfully sent ${transferAmount} LEAP tokens to ${selectedUser.email || selectedUser.full_name || "user"}`,
+          `Successfully sent ${formatNumber(transferAmount)} LEAP tokens to ${selectedUser.email || selectedUser.full_name || "user"}`,
         )
         onTransferComplete()
 
@@ -152,6 +198,8 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
         let errorMessage = result.error || "Transfer failed"
         if (errorMessage.includes("integer out of range")) {
           errorMessage = "Transfer amount is too large. Please try a smaller amount."
+        } else if (errorMessage.includes("Insufficient balance")) {
+          errorMessage = result.error // Mantener el mensaje original de balance insuficiente
         }
 
         throw new Error(errorMessage)
@@ -181,7 +229,8 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
   }
 
   // Calcular balance para mostrar
-  const displayBalance = currentBalance >= 10000000 ? currentBalance / 1000000000 : currentBalance
+  const displayBalance = getBalanceInLeap(currentBalance)
+  const isAtomicFormat = currentBalance >= 10000000
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
@@ -198,12 +247,14 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
           <div className="bg-blue-50 dark:bg-blue-950 p-3 rounded-lg">
             <p className="text-sm text-blue-600 dark:text-blue-400">Available Balance</p>
             <p className="text-lg font-semibold text-blue-700 dark:text-blue-300">
-              {displayBalance.toLocaleString()} LEAP
+              {formatNumber(displayBalance)} LEAP
             </p>
-            <p className="text-xs text-blue-500 dark:text-blue-400">
-              Raw balance: {currentBalance.toLocaleString()}
-              {currentBalance >= 10000000 ? " (atomic)" : " (LEAP)"}
-            </p>
+            <div className="flex items-center gap-1 mt-1">
+              <Info className="h-3 w-3 text-blue-500" />
+              <p className="text-xs text-blue-500 dark:text-blue-400">
+                Raw: {formatNumber(currentBalance)} {isAtomicFormat ? "(atomic)" : "(LEAP)"}
+              </p>
+            </div>
           </div>
 
           {/* Error/Success Messages */}
@@ -215,7 +266,7 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
           )}
 
           {success && (
-            <Alert className="border-green-200 bg-green-50 text-green-800">
+            <Alert className="border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200">
               <CheckCircle2 className="h-4 w-4" />
               <AlertDescription>{success}</AlertDescription>
             </Alert>
@@ -225,7 +276,7 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
           {debugInfo && (
             <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg text-xs overflow-auto max-h-32">
               <p className="font-medium mb-1">Debug Info:</p>
-              <pre>{JSON.stringify(debugInfo, null, 2)}</pre>
+              <pre className="whitespace-pre-wrap">{JSON.stringify(debugInfo, null, 2)}</pre>
             </div>
           )}
 
@@ -251,7 +302,7 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
                     <button
                       key={user.id}
                       onClick={() => selectUser(user)}
-                      className="w-full p-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800 border-b last:border-b-0"
+                      className="w-full p-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800 border-b last:border-b-0 transition-colors"
                     >
                       <div className="font-medium">{user.full_name || "No name"}</div>
                       <div className="text-sm text-gray-500">{user.email}</div>
@@ -261,7 +312,12 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
                 </div>
               )}
 
-              {isSearching && <p className="text-sm text-gray-500">Searching...</p>}
+              {isSearching && (
+                <div className="flex items-center gap-2 text-sm text-gray-500">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-500"></div>
+                  Searching...
+                </div>
+              )}
             </div>
           ) : (
             <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg">
@@ -291,7 +347,10 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
               step="0.000000001"
               max={displayBalance}
             />
-            <p className="text-xs text-gray-500">Maximum: {displayBalance.toLocaleString()} LEAP</p>
+            <div className="flex justify-between text-xs text-gray-500">
+              <span>Maximum: {formatNumber(displayBalance)} LEAP</span>
+              <span>Limit: 1M LEAP per transfer</span>
+            </div>
           </div>
 
           {/* Description Input */}
@@ -312,7 +371,14 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
               Cancel
             </Button>
             <Button onClick={handleTransfer} disabled={!selectedUser || !amount || isTransferring} className="flex-1">
-              {isTransferring ? "Sending..." : "Send Tokens"}
+              {isTransferring ? (
+                <div className="flex items-center gap-2">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  Sending...
+                </div>
+              ) : (
+                "Send Tokens"
+              )}
             </Button>
           </div>
         </div>
