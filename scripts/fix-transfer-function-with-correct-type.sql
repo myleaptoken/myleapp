@@ -1,268 +1,252 @@
--- =====================================================
--- CREATE TRANSFER FUNCTION WITH CORRECT TYPE
--- =====================================================
--- Detects valid type automatically and uses it
--- =====================================================
+-- Primero, verificar qué constraint existe en token_transactions.type
+DO $$
+DECLARE
+    constraint_def text;
+BEGIN
+    -- Obtener la definición del constraint
+    SELECT pg_get_constraintdef(oid) INTO constraint_def
+    FROM pg_constraint 
+    WHERE conname LIKE '%token_transactions%type%check%' 
+    AND conrelid = 'token_transactions'::regclass;
+    
+    IF constraint_def IS NOT NULL THEN
+        RAISE NOTICE 'Found constraint: %', constraint_def;
+    ELSE
+        RAISE NOTICE 'No type constraint found on token_transactions';
+    END IF;
+END $$;
 
-DROP FUNCTION IF EXISTS transfer_tokens_atomic(uuid,uuid,numeric,text);
-
+-- Crear o reemplazar la función de transferencia
 CREATE OR REPLACE FUNCTION transfer_tokens_atomic(
     sender_id UUID,
     receiver_id UUID,
     amount_tokens DECIMAL,
     description_text TEXT DEFAULT 'Token transfer'
 )
-RETURNS JSON AS $$
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
 DECLARE
-    amount_atomic BIGINT;
     sender_balance BIGINT;
     receiver_balance BIGINT;
+    amount_atomic BIGINT;
     operation_id UUID;
+    sender_tx_id UUID;
+    receiver_tx_id UUID;
     valid_type TEXT;
-    test_id UUID;
-    test_user_id UUID;
+    result JSON;
 BEGIN
-    -- Convert LEAP to atomic units (1 LEAP = 1,000,000,000 atomic units)
+    -- Convertir tokens a formato atómico
     amount_atomic := (amount_tokens * 1000000000)::BIGINT;
     
-    -- Validate amount
+    -- Verificar que el monto sea positivo
     IF amount_atomic <= 0 THEN
         RETURN json_build_object(
             'success', false,
-            'error', 'Amount must be greater than 0'
+            'error', 'Amount must be positive'
         );
     END IF;
     
-    -- Validate users exist
-    IF NOT EXISTS (SELECT 1 FROM users WHERE id = sender_id) THEN
-        RETURN json_build_object(
-            'success', false,
-            'error', 'Sender not found'
-        );
-    END IF;
+    -- Obtener balance actual del sender
+    SELECT COALESCE(token_balance, 0) INTO sender_balance
+    FROM users 
+    WHERE id = sender_id;
     
-    IF NOT EXISTS (SELECT 1 FROM users WHERE id = receiver_id) THEN
-        RETURN json_build_object(
-            'success', false,
-            'error', 'Receiver not found'
-        );
-    END IF;
-    
-    -- Get sender balance
-    SELECT COALESCE(token_balance, 0) INTO sender_balance 
-    FROM users WHERE id = sender_id;
-    
-    -- Check if sender has enough balance
+    -- Verificar balance suficiente
     IF sender_balance < amount_atomic THEN
         RETURN json_build_object(
             'success', false,
-            'error', 'Insufficient balance',
-            'required', amount_atomic,
-            'available', sender_balance
+            'error', format('Insufficient balance. Available: %s LEAP, Required: %s LEAP', 
+                          (sender_balance::DECIMAL / 1000000000), amount_tokens),
+            'debug', json_build_object(
+                'sender_balance_atomic', sender_balance,
+                'sender_balance_leap', (sender_balance::DECIMAL / 1000000000),
+                'amount_requested', amount_tokens,
+                'amount_atomic', amount_atomic
+            )
         );
     END IF;
     
-    -- Get a test user for constraint testing
-    SELECT id INTO test_user_id FROM users LIMIT 1;
+    -- Obtener balance del receiver
+    SELECT COALESCE(token_balance, 0) INTO receiver_balance
+    FROM users 
+    WHERE id = receiver_id;
     
-    -- Determine the correct type to use by testing what works
-    -- Try in order of preference: transfer, transaction, payment, send, bonus
-    valid_type := 'bonus'; -- fallback (we know this works)
+    -- Determinar qué tipo usar para token_transactions
+    -- Probar diferentes valores en orden de preferencia
+    valid_type := 'transfer'; -- Valor por defecto
     
-    -- Try 'transfer' first
     BEGIN
-        test_id := gen_random_uuid();
-        INSERT INTO token_transactions (
-            id, user_id, amount, type, description, created_at
-        ) VALUES (
-            test_id, test_user_id, 1, 'transfer', 'constraint_test', NOW()
-        );
-        DELETE FROM token_transactions WHERE id = test_id;
+        -- Probar insertar un registro temporal para ver qué tipo funciona
+        INSERT INTO token_transactions (id, user_id, amount, type, description, reference_type)
+        VALUES (gen_random_uuid(), sender_id, -amount_atomic, 'transfer', 'test', 'test');
+        DELETE FROM token_transactions WHERE description = 'test' AND reference_type = 'test';
         valid_type := 'transfer';
-    EXCEPTION WHEN OTHERS THEN
-        -- Try 'transaction'
+    EXCEPTION WHEN check_violation THEN
         BEGIN
-            test_id := gen_random_uuid();
-            INSERT INTO token_transactions (
-                id, user_id, amount, type, description, created_at
-            ) VALUES (
-                test_id, test_user_id, 1, 'transaction', 'constraint_test', NOW()
-            );
-            DELETE FROM token_transactions WHERE id = test_id;
+            INSERT INTO token_transactions (id, user_id, amount, type, description, reference_type)
+            VALUES (gen_random_uuid(), sender_id, -amount_atomic, 'transaction', 'test', 'test');
+            DELETE FROM token_transactions WHERE description = 'test' AND reference_type = 'test';
             valid_type := 'transaction';
-        EXCEPTION WHEN OTHERS THEN
-            -- Try 'payment'
+        EXCEPTION WHEN check_violation THEN
             BEGIN
-                test_id := gen_random_uuid();
-                INSERT INTO token_transactions (
-                    id, user_id, amount, type, description, created_at
-                ) VALUES (
-                    test_id, test_user_id, 1, 'payment', 'constraint_test', NOW()
-                );
-                DELETE FROM token_transactions WHERE id = test_id;
+                INSERT INTO token_transactions (id, user_id, amount, type, description, reference_type)
+                VALUES (gen_random_uuid(), sender_id, -amount_atomic, 'payment', 'test', 'test');
+                DELETE FROM token_transactions WHERE description = 'test' AND reference_type = 'test';
                 valid_type := 'payment';
-            EXCEPTION WHEN OTHERS THEN
-                -- Try 'send'
-                BEGIN
-                    test_id := gen_random_uuid();
-                    INSERT INTO token_transactions (
-                        id, user_id, amount, type, description, created_at
-                    ) VALUES (
-                        test_id, test_user_id, 1, 'send', 'constraint_test', NOW()
-                    );
-                    DELETE FROM token_transactions WHERE id = test_id;
-                    valid_type := 'send';
-                EXCEPTION WHEN OTHERS THEN
-                    -- Fall back to 'bonus' (we know this works)
-                    valid_type := 'bonus';
-                END;
+            EXCEPTION WHEN check_violation THEN
+                valid_type := 'bonus'; -- Fallback que sabemos que funciona
             END;
         END;
     END;
     
-    -- Generate operation ID
+    -- Generar IDs únicos
     operation_id := gen_random_uuid();
+    sender_tx_id := gen_random_uuid();
+    receiver_tx_id := gen_random_uuid();
     
-    -- 1. Record in atomic_token_operations
-    INSERT INTO atomic_token_operations (
-        id,
-        operation_type,
-        from_account_type,
-        from_account_id,
-        to_account_type,
-        to_account_id,
-        amount,
-        reference_type,
-        reference_id,
-        description,
-        status,
-        processed_at,
-        created_at
-    ) VALUES (
-        operation_id,
-        'transfer',
-        'user',
-        sender_id,
-        'user',
-        receiver_id,
-        amount_atomic,
-        'user_transfer',
-        operation_id,
-        description_text,
-        'completed',
-        NOW(),
-        NOW()
-    );
-    
-    -- 2. Update balances in users table
-    UPDATE users 
-    SET token_balance = token_balance - amount_atomic,
-        updated_at = NOW()
-    WHERE id = sender_id;
-    
-    UPDATE users 
-    SET token_balance = token_balance + amount_atomic,
-        updated_at = NOW()
-    WHERE id = receiver_id;
-    
-    -- 3. Record sender transaction (negative amount)
-    INSERT INTO token_transactions (
-        id,
-        user_id,
-        amount,
-        type,
-        description,
-        reference_id,
-        reference_type,
-        created_at
-    ) VALUES (
-        gen_random_uuid(),
-        sender_id,
-        -amount_atomic,
-        valid_type,
-        'Sent: ' || description_text,
-        operation_id,
-        'user_transfer',
-        NOW()
-    );
-    
-    -- 4. Record receiver transaction (positive amount)
-    INSERT INTO token_transactions (
-        id,
-        user_id,
-        amount,
-        type,
-        description,
-        reference_id,
-        reference_type,
-        created_at
-    ) VALUES (
-        gen_random_uuid(),
-        receiver_id,
-        amount_atomic,
-        valid_type,
-        'Received: ' || description_text,
-        operation_id,
-        'user_transfer',
-        NOW()
-    );
-    
-    -- 5. Update user_balances if it exists
+    -- Iniciar transacción atómica
     BEGIN
-        UPDATE user_balances 
-        SET available_balance = available_balance - amount_atomic,
-            updated_at = NOW()
-        WHERE user_id = sender_id;
+        -- 1. Registrar en atomic_token_operations
+        INSERT INTO atomic_token_operations (
+            id,
+            operation_type,
+            from_account_type,
+            from_account_id,
+            to_account_type,
+            to_account_id,
+            amount,
+            reference_type,
+            reference_id,
+            description,
+            status,
+            processed_at,
+            created_at
+        ) VALUES (
+            operation_id,
+            'transfer',
+            'user',
+            sender_id,
+            'user',
+            receiver_id,
+            amount_atomic,
+            'user_transfer',
+            operation_id,
+            description_text,
+            'completed',
+            NOW(),
+            NOW()
+        );
         
-        UPDATE user_balances 
-        SET available_balance = available_balance + amount_atomic,
-            total_earned = total_earned + amount_atomic,
+        -- 2. Actualizar balances en users
+        UPDATE users 
+        SET token_balance = token_balance - amount_atomic,
             updated_at = NOW()
-        WHERE user_id = receiver_id;
+        WHERE id = sender_id;
+        
+        UPDATE users 
+        SET token_balance = token_balance + amount_atomic,
+            updated_at = NOW()
+        WHERE id = receiver_id;
+        
+        -- 3. Registrar transacciones en token_transactions
+        -- Transacción del sender (negativa)
+        INSERT INTO token_transactions (
+            id,
+            user_id,
+            amount,
+            type,
+            description,
+            reference_id,
+            reference_type,
+            created_at
+        ) VALUES (
+            sender_tx_id,
+            sender_id,
+            -amount_atomic,
+            valid_type,
+            format('Sent %s LEAP to %s', amount_tokens, 
+                   (SELECT COALESCE(full_name, email) FROM users WHERE id = receiver_id)),
+            operation_id,
+            'transfer',
+            NOW()
+        );
+        
+        -- Transacción del receiver (positiva)
+        INSERT INTO token_transactions (
+            id,
+            user_id,
+            amount,
+            type,
+            description,
+            reference_id,
+            reference_type,
+            created_at
+        ) VALUES (
+            receiver_tx_id,
+            receiver_id,
+            amount_atomic,
+            valid_type,
+            format('Received %s LEAP from %s', amount_tokens,
+                   (SELECT COALESCE(full_name, email) FROM users WHERE id = sender_id)),
+            operation_id,
+            'transfer',
+            NOW()
+        );
+        
+        -- 4. Actualizar user_balances si existe
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'user_balances') THEN
+            -- Actualizar sender
+            INSERT INTO user_balances (user_id, balance, updated_at)
+            VALUES (sender_id, sender_balance - amount_atomic, NOW())
+            ON CONFLICT (user_id) 
+            DO UPDATE SET 
+                balance = sender_balance - amount_atomic,
+                updated_at = NOW();
+            
+            -- Actualizar receiver
+            INSERT INTO user_balances (user_id, balance, updated_at)
+            VALUES (receiver_id, receiver_balance + amount_atomic, NOW())
+            ON CONFLICT (user_id) 
+            DO UPDATE SET 
+                balance = receiver_balance + amount_atomic,
+                updated_at = NOW();
+        END IF;
+        
+        -- Construir respuesta exitosa
+        result := json_build_object(
+            'success', true,
+            'message', format('Successfully transferred %s LEAP tokens', amount_tokens),
+            'operation_id', operation_id,
+            'type_used', valid_type,
+            'details', json_build_object(
+                'sender_id', sender_id,
+                'receiver_id', receiver_id,
+                'amount_tokens', amount_tokens,
+                'amount_atomic', amount_atomic,
+                'sender_new_balance', sender_balance - amount_atomic,
+                'receiver_new_balance', receiver_balance + amount_atomic
+            )
+        );
+        
+        RETURN result;
+        
     EXCEPTION WHEN OTHERS THEN
-        -- user_balances table might not exist or have different structure
-        NULL;
+        -- En caso de error, hacer rollback automático
+        RETURN json_build_object(
+            'success', false,
+            'error', format('Transfer failed: %s', SQLERRM),
+            'debug', json_build_object(
+                'sender_balance', sender_balance,
+                'amount_atomic', amount_atomic,
+                'valid_type', valid_type,
+                'sql_error', SQLERRM
+            )
+        );
     END;
-    
-    -- Get final balances
-    SELECT token_balance INTO sender_balance FROM users WHERE id = sender_id;
-    SELECT token_balance INTO receiver_balance FROM users WHERE id = receiver_id;
-    
-    -- Return success with detailed info
-    RETURN json_build_object(
-        'success', true,
-        'operation_id', operation_id,
-        'amount_atomic', amount_atomic,
-        'amount_tokens', amount_tokens,
-        'type_used', valid_type,
-        'sender_id', sender_id,
-        'receiver_id', receiver_id,
-        'sender_balance', sender_balance,
-        'receiver_balance', receiver_balance,
-        'description', description_text
-    );
-    
-EXCEPTION WHEN OTHERS THEN
-    RETURN json_build_object(
-        'success', false,
-        'error', SQLERRM,
-        'error_code', SQLSTATE,
-        'sender_id', sender_id,
-        'receiver_id', receiver_id
-    );
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
--- Grant permissions
-GRANT EXECUTE ON FUNCTION transfer_tokens_atomic TO authenticated;
-
--- Test message
-DO $$
-BEGIN
-    RAISE NOTICE '==============================================';
-    RAISE NOTICE 'TRANSFER FUNCTION CREATED SUCCESSFULLY!';
-    RAISE NOTICE 'Function: transfer_tokens_atomic()';
-    RAISE NOTICE 'Auto-detects valid type for token_transactions';
-    RAISE NOTICE 'Ready for testing!';
-    RAISE NOTICE '==============================================';
-END $$;
+-- Mensaje de confirmación
+SELECT 'Function transfer_tokens_atomic created successfully' as status;

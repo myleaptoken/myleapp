@@ -88,9 +88,9 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
       return
     }
 
-    // El balance ya está en formato LEAP (como muestra la imagen: 1230)
-    // No necesitamos convertir, solo validar directamente
-    const availableBalance = currentBalance
+    // Determinar el balance disponible en LEAP
+    // Si currentBalance es muy grande (>= 1000000000), está en formato atómico
+    const availableBalance = currentBalance >= 1000000000 ? currentBalance / 1000000000 : currentBalance
 
     console.log("Transfer validation:", {
       transferAmount,
@@ -99,7 +99,7 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
       isValid: transferAmount <= availableBalance,
     })
 
-    // Validación simple: el monto a transferir debe ser menor o igual al balance disponible
+    // Validación en el frontend (la función SQL también validará)
     if (transferAmount > availableBalance) {
       setError(
         `Insufficient balance. Available: ${availableBalance.toLocaleString()} LEAP, trying to send: ${transferAmount} LEAP`,
@@ -119,7 +119,12 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
         description_text: description || "Token transfer",
       })
 
-      if (error) throw error
+      if (error) {
+        console.error("Supabase RPC error:", error)
+        throw error
+      }
+
+      console.log("Transfer response:", data)
 
       const result = typeof data === "string" ? JSON.parse(data) : data
 
@@ -136,6 +141,7 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
           onClose()
         }, 2000)
       } else {
+        console.error("Transfer failed:", result)
         throw new Error(result.error || "Transfer failed")
       }
     } catch (err: any) {
@@ -161,6 +167,9 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
     onClose()
   }
 
+  // Calcular balance para mostrar
+  const displayBalance = currentBalance >= 1000000000 ? currentBalance / 1000000000 : currentBalance
+
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-md">
@@ -176,9 +185,12 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
           <div className="bg-blue-50 dark:bg-blue-950 p-3 rounded-lg">
             <p className="text-sm text-blue-600 dark:text-blue-400">Available Balance</p>
             <p className="text-lg font-semibold text-blue-700 dark:text-blue-300">
-              {currentBalance.toLocaleString()} LEAP
+              {displayBalance.toLocaleString()} LEAP
             </p>
-            <p className="text-xs text-blue-500 dark:text-blue-400">Raw balance: {currentBalance}</p>
+            <p className="text-xs text-blue-500 dark:text-blue-400">
+              Raw balance: {currentBalance.toLocaleString()}
+              {currentBalance >= 1000000000 ? " (atomic)" : " (LEAP)"}
+            </p>
           </div>
 
           {/* Error/Success Messages */}
@@ -256,9 +268,9 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
               onChange={(e) => setAmount(e.target.value)}
               min="0"
               step="0.000000001"
-              max={currentBalance}
+              max={displayBalance}
             />
-            <p className="text-xs text-gray-500">Maximum: {currentBalance.toLocaleString()} LEAP</p>
+            <p className="text-xs text-gray-500">Maximum: {displayBalance.toLocaleString()} LEAP</p>
           </div>
 
           {/* Description Input */}
