@@ -1,0 +1,58 @@
+import type { VideoTestimonial } from "@/types/video-testimonial"
+
+export const VIDEO_TESTIMONIALS_DATA: VideoTestimonial[] = [
+  {
+    id: "1",
+    name: "María González",
+    title: "Sanación de Dolor Crónico",
+    description: "Logré 3 años de dolor de espalda con 3 sesiones con facilitadores LEAP",
+    duration: "3:45",
+    thumbnail: "/placeholder.svg?height=200&width=300",
+    videoUrl: "#",
+  },
+  {
+    id: "2",
+    name: "Carlos Mendoza",
+    title: "Expansión de Consciencia",
+    description: "El Método ONE me ayudó a conectar con mi propósito de vida",
+    duration: "4:20",
+    thumbnail: "/placeholder.svg?height=200&width=300",
+    videoUrl: "#",
+  },
+  {
+    id: "3",
+    name: "Ana Rodríguez",
+    title: "Sanación Emocional",
+    description: "Superé traumas familiares usando tokens LEAP para acceder a cursos NFT",
+    duration: "2:30",
+    thumbnail: "/placeholder.svg?height=200&width=300",
+    videoUrl: "#",
+  },
+  {
+    id: "4",
+    name: "Roberto Silva",
+    title: "Transformación Energética",
+    description: "Mi energía vital se multiplicó después de los workshops de sanación",
+    duration: "5:15",
+    thumbnail: "/placeholder.svg?height=200&width=300",
+    videoUrl: "#",
+  },
+  {
+    id: "5",
+    name: "Laura Martín",
+    title: "Despertar Espiritual",
+    description: "Encontré mi camino espiritual a través de las técnicas de Método ONE",
+    duration: "3:50",
+    thumbnail: "/placeholder.svg?height=200&width=300",
+    videoUrl: "#",
+  },
+  {
+    id: "6",
+    name: "Diego Herrera",
+    title: "Sanación Física",
+    description: "Recuperé mi movilidad después de años de limitaciones físicas",
+    duration: "4:05",
+    thumbnail: "/placeholder.svg?height=200&width=300",
+    videoUrl: "#",
+  },
+]
