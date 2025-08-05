@@ -36,6 +36,7 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
   const [isTransferring, setIsTransferring] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
+  const [debugInfo, setDebugInfo] = useState<any>(null)
 
   const searchUsers = async (query: string) => {
     if (!query.trim()) {
@@ -88,28 +89,19 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
       return
     }
 
-    // Determinar el balance disponible en LEAP
-    // Si currentBalance es muy grande (>= 1000000000), está en formato atómico
-    const availableBalance = currentBalance >= 1000000000 ? currentBalance / 1000000000 : currentBalance
+    // Siempre enviamos el monto en formato LEAP a la función SQL
+    // La función se encargará de detectar y convertir según sea necesario
 
     console.log("Transfer validation:", {
       transferAmount,
       currentBalance,
-      availableBalance,
-      isValid: transferAmount <= availableBalance,
+      isValid: true, // Dejamos que la función SQL valide
     })
-
-    // Validación en el frontend (la función SQL también validará)
-    if (transferAmount > availableBalance) {
-      setError(
-        `Insufficient balance. Available: ${availableBalance.toLocaleString()} LEAP, trying to send: ${transferAmount} LEAP`,
-      )
-      return
-    }
 
     setIsTransferring(true)
     setError("")
     setSuccess("")
+    setDebugInfo(null)
 
     try {
       const { data, error } = await supabase.rpc("transfer_tokens_atomic", {
@@ -129,7 +121,9 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
       const result = typeof data === "string" ? JSON.parse(data) : data
 
       if (result.success) {
-        setSuccess(`Successfully sent ${transferAmount} LEAP tokens to ${selectedUser.email}`)
+        setSuccess(
+          `Successfully sent ${transferAmount} LEAP tokens to ${selectedUser.email || selectedUser.full_name || "user"}`,
+        )
         onTransferComplete()
 
         // Reset form
@@ -142,6 +136,7 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
         }, 2000)
       } else {
         console.error("Transfer failed:", result)
+        setDebugInfo(result)
         throw new Error(result.error || "Transfer failed")
       }
     } catch (err: any) {
@@ -160,6 +155,7 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
     setSearchResults([])
     setError("")
     setSuccess("")
+    setDebugInfo(null)
   }
 
   const handleClose = () => {
@@ -167,8 +163,9 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
     onClose()
   }
 
-  // Calcular balance para mostrar
-  const displayBalance = currentBalance >= 1000000000 ? currentBalance / 1000000000 : currentBalance
+  // Siempre mostramos el balance como LEAP
+  // Si es mayor a 10 millones, asumimos que está en formato atómico y lo convertimos
+  const displayBalance = currentBalance > 10000000 ? currentBalance / 1000000000 : currentBalance
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
@@ -189,7 +186,7 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
             </p>
             <p className="text-xs text-blue-500 dark:text-blue-400">
               Raw balance: {currentBalance.toLocaleString()}
-              {currentBalance >= 1000000000 ? " (atomic)" : " (LEAP)"}
+              {currentBalance > 10000000 ? " (atomic)" : " (LEAP)"}
             </p>
           </div>
 
@@ -206,6 +203,14 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
               <CheckCircle2 className="h-4 w-4" />
               <AlertDescription>{success}</AlertDescription>
             </Alert>
+          )}
+
+          {/* Debug Info */}
+          {debugInfo && (
+            <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg text-xs overflow-auto max-h-32">
+              <p className="font-medium mb-1">Debug Info:</p>
+              <pre>{JSON.stringify(debugInfo, null, 2)}</pre>
+            </div>
           )}
 
           {/* User Selection */}
