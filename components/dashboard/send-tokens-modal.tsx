@@ -88,11 +88,27 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
       return
     }
 
-    // Calcular el balance disponible correctamente
-    const availableBalance = currentBalance >= 1000000000 ? currentBalance / 1000000000 : currentBalance
+    // Determinar el balance disponible correctamente
+    let availableBalance: number
+    if (currentBalance >= 1000000000) {
+      // Balance está en formato atómico (nano-tokens)
+      availableBalance = currentBalance / 1000000000
+    } else {
+      // Balance ya está en formato LEAP
+      availableBalance = currentBalance
+    }
+
+    console.log("Transfer validation:", {
+      transferAmount,
+      currentBalance,
+      availableBalance,
+      comparison: transferAmount <= availableBalance,
+    })
 
     if (transferAmount > availableBalance) {
-      setError(`Insufficient balance. Available: ${availableBalance.toLocaleString()} LEAP`)
+      setError(
+        `Insufficient balance. You have ${availableBalance.toLocaleString()} LEAP, trying to send ${transferAmount} LEAP`,
+      )
       return
     }
 
