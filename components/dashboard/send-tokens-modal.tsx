@@ -88,8 +88,11 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
       return
     }
 
-    if (transferAmount > currentBalance / 1000000000) {
-      setError("Insufficient balance")
+    // Calcular el balance disponible correctamente
+    const availableBalance = currentBalance >= 1000000000 ? currentBalance / 1000000000 : currentBalance
+
+    if (transferAmount > availableBalance) {
+      setError(`Insufficient balance. Available: ${availableBalance.toLocaleString()} LEAP`)
       return
     }
 
@@ -162,8 +165,18 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
           <div className="bg-blue-50 dark:bg-blue-950 p-3 rounded-lg">
             <p className="text-sm text-blue-600 dark:text-blue-400">Available Balance</p>
             <p className="text-lg font-semibold text-blue-700 dark:text-blue-300">
-              {(currentBalance / 1000000000).toLocaleString()} LEAP
+              {currentBalance >= 1000000000
+                ? (currentBalance / 1000000000).toLocaleString(undefined, {
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 9,
+                  })
+                : currentBalance.toLocaleString(undefined, {
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 9,
+                  })}{" "}
+              LEAP
             </p>
+            <p className="text-xs text-blue-500 dark:text-blue-400">Raw balance: {currentBalance.toLocaleString()}</p>
           </div>
 
           {/* Error/Success Messages */}
