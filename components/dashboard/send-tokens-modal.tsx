@@ -88,26 +88,21 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
       return
     }
 
-    // Determinar el balance disponible correctamente
-    let availableBalance: number
-    if (currentBalance >= 1000000000) {
-      // Balance está en formato atómico (nano-tokens)
-      availableBalance = currentBalance / 1000000000
-    } else {
-      // Balance ya está en formato LEAP
-      availableBalance = currentBalance
-    }
+    // El balance ya está en formato LEAP (como muestra la imagen: 1230)
+    // No necesitamos convertir, solo validar directamente
+    const availableBalance = currentBalance
 
     console.log("Transfer validation:", {
       transferAmount,
       currentBalance,
       availableBalance,
-      comparison: transferAmount <= availableBalance,
+      isValid: transferAmount <= availableBalance,
     })
 
+    // Validación simple: el monto a transferir debe ser menor o igual al balance disponible
     if (transferAmount > availableBalance) {
       setError(
-        `Insufficient balance. You have ${availableBalance.toLocaleString()} LEAP, trying to send ${transferAmount} LEAP`,
+        `Insufficient balance. Available: ${availableBalance.toLocaleString()} LEAP, trying to send: ${transferAmount} LEAP`,
       )
       return
     }
@@ -181,18 +176,9 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
           <div className="bg-blue-50 dark:bg-blue-950 p-3 rounded-lg">
             <p className="text-sm text-blue-600 dark:text-blue-400">Available Balance</p>
             <p className="text-lg font-semibold text-blue-700 dark:text-blue-300">
-              {currentBalance >= 1000000000
-                ? (currentBalance / 1000000000).toLocaleString(undefined, {
-                    minimumFractionDigits: 0,
-                    maximumFractionDigits: 9,
-                  })
-                : currentBalance.toLocaleString(undefined, {
-                    minimumFractionDigits: 0,
-                    maximumFractionDigits: 9,
-                  })}{" "}
-              LEAP
+              {currentBalance.toLocaleString()} LEAP
             </p>
-            <p className="text-xs text-blue-500 dark:text-blue-400">Raw balance: {currentBalance.toLocaleString()}</p>
+            <p className="text-xs text-blue-500 dark:text-blue-400">Raw balance: {currentBalance}</p>
           </div>
 
           {/* Error/Success Messages */}
@@ -270,7 +256,9 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
               onChange={(e) => setAmount(e.target.value)}
               min="0"
               step="0.000000001"
+              max={currentBalance}
             />
+            <p className="text-xs text-gray-500">Maximum: {currentBalance.toLocaleString()} LEAP</p>
           </div>
 
           {/* Description Input */}
