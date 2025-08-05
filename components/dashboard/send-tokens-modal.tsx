@@ -89,13 +89,23 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
       return
     }
 
-    // Siempre enviamos el monto en formato LEAP a la función SQL
-    // La función se encargará de detectar y convertir según sea necesario
+    // Calcular el balance disponible en LEAP
+    // Si el balance es muy grande (>= 10 millones), está en formato atómico
+    const availableBalanceLeap = currentBalance >= 10000000 ? currentBalance / 1000000000 : currentBalance
+
+    // Validación básica en el frontend
+    if (transferAmount > availableBalanceLeap) {
+      setError(
+        `Insufficient balance. Available: ${availableBalanceLeap.toLocaleString()} LEAP, trying to send: ${transferAmount} LEAP`,
+      )
+      return
+    }
 
     console.log("Transfer validation:", {
       transferAmount,
       currentBalance,
-      isValid: true, // Dejamos que la función SQL valide
+      availableBalanceLeap,
+      isValid: transferAmount <= availableBalanceLeap,
     })
 
     setIsTransferring(true)
@@ -137,7 +147,14 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
       } else {
         console.error("Transfer failed:", result)
         setDebugInfo(result)
-        throw new Error(result.error || "Transfer failed")
+
+        // Mostrar error más amigable
+        let errorMessage = result.error || "Transfer failed"
+        if (errorMessage.includes("integer out of range")) {
+          errorMessage = "Transfer amount is too large. Please try a smaller amount."
+        }
+
+        throw new Error(errorMessage)
       }
     } catch (err: any) {
       console.error("Transfer error:", err)
@@ -163,9 +180,8 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
     onClose()
   }
 
-  // Siempre mostramos el balance como LEAP
-  // Si es mayor a 10 millones, asumimos que está en formato atómico y lo convertimos
-  const displayBalance = currentBalance > 10000000 ? currentBalance / 1000000000 : currentBalance
+  // Calcular balance para mostrar
+  const displayBalance = currentBalance >= 10000000 ? currentBalance / 1000000000 : currentBalance
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
@@ -186,7 +202,7 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
             </p>
             <p className="text-xs text-blue-500 dark:text-blue-400">
               Raw balance: {currentBalance.toLocaleString()}
-              {currentBalance > 10000000 ? " (atomic)" : " (LEAP)"}
+              {currentBalance >= 10000000 ? " (atomic)" : " (LEAP)"}
             </p>
           </div>
 
