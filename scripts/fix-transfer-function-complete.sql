@@ -28,6 +28,8 @@ DECLARE
     atomic_factor CONSTANT NUMERIC := 1000000000;
     new_sender_balance NUMERIC;
     new_receiver_balance NUMERIC;
+    test_types TEXT[] := ARRAY['bonus', 'reward', 'payment', 'credit', 'deposit', 'transaction', 'transfer'];
+    test_type TEXT;
 BEGIN
     -- Log de inicio
     RAISE NOTICE 'Iniciando transferencia: % LEAP de % a %', amount_tokens, sender_id, receiver_id;
@@ -105,21 +107,37 @@ BEGIN
     new_sender_balance := sender_balance - amount_atomic;
     new_receiver_balance := receiver_balance + amount_atomic;
     
-    -- Determinar tipo válido para token_transactions
-    valid_type := 'transfer';
+    -- Determinar tipo válido para token_transactions probando cada uno
+    valid_type := 'bonus'; -- Fallback por defecto
     
-    -- Verificar qué tipos existen en la tabla
-    BEGIN
-        PERFORM 1 FROM token_transactions WHERE type = 'transfer' LIMIT 1;
-        valid_type := 'transfer';
-    EXCEPTION WHEN OTHERS THEN
+    FOREACH test_type IN ARRAY test_types
+    LOOP
         BEGIN
-            PERFORM 1 FROM token_transactions WHERE type = 'bonus' LIMIT 1;
-            valid_type := 'bonus';
+            -- Probar insertar un registro temporal con este tipo
+            INSERT INTO token_transactions (
+                id, user_id, amount, type, description, created_at
+            ) VALUES (
+                gen_random_uuid(), sender_id, 1, test_type, 'Test', NOW()
+            );
+            
+            -- Si llegamos aquí, este tipo es válido
+            valid_type := test_type;
+            
+            -- Eliminar el registro de prueba
+            DELETE FROM token_transactions 
+            WHERE user_id = sender_id 
+            AND amount = 1 
+            AND description = 'Test' 
+            AND type = test_type;
+            
+            RAISE NOTICE 'Tipo válido encontrado: %', valid_type;
+            EXIT; -- Salir del loop
+            
         EXCEPTION WHEN OTHERS THEN
-            valid_type := 'payment'; -- Fallback
+            -- Este tipo no es válido, continuar con el siguiente
+            CONTINUE;
         END;
-    END;
+    END LOOP;
     
     -- Generar IDs únicos
     operation_id := gen_random_uuid();
@@ -284,6 +302,6 @@ DO $$
 BEGIN
     RAISE NOTICE '==============================================';
     RAISE NOTICE 'FUNCIÓN DE TRANSFERENCIA COMPLETA INSTALADA';
-    RAISE NOTICE 'Versión mejorada con manejo completo de NUMERIC';
+    RAISE NOTICE 'Versión mejorada con detección automática de tipos';
     RAISE NOTICE '==============================================';
 END $$;

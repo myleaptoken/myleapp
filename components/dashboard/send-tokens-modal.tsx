@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Search, Send, AlertCircle, CheckCircle2, Info } from "lucide-react"
+import { Search, Send, AlertCircle, CheckCircle2, Info } from 'lucide-react'
 import { supabase } from "@/lib/supabase"
 import { useAuth } from "@/hooks/use-auth"
 
@@ -200,6 +200,8 @@ export function SendTokensModal({ isOpen, onClose, currentBalance, onTransferCom
           errorMessage = "Transfer amount is too large. Please try a smaller amount."
         } else if (errorMessage.includes("Insufficient balance")) {
           errorMessage = result.error // Mantener el mensaje original de balance insuficiente
+        } else if (errorMessage.includes("check constraint")) {
+          errorMessage = "Database constraint error. Please try again or contact support."
         }
 
         throw new Error(errorMessage)
