@@ -28,7 +28,7 @@ DECLARE
     atomic_factor CONSTANT NUMERIC := 1000000000;
     new_sender_balance NUMERIC;
     new_receiver_balance NUMERIC;
-    test_types TEXT[] := ARRAY['bonus', 'reward', 'payment', 'credit', 'deposit', 'transaction', 'transfer'];
+    test_types TEXT[] := ARRAY['transfer', 'bonus', 'reward', 'payment', 'credit', 'debit'];
     test_type TEXT;
 BEGIN
     -- Log de inicio
@@ -107,37 +107,8 @@ BEGIN
     new_sender_balance := sender_balance - amount_atomic;
     new_receiver_balance := receiver_balance + amount_atomic;
     
-    -- Determinar tipo válido para token_transactions probando cada uno
-    valid_type := 'bonus'; -- Fallback por defecto
-    
-    FOREACH test_type IN ARRAY test_types
-    LOOP
-        BEGIN
-            -- Probar insertar un registro temporal con este tipo
-            INSERT INTO token_transactions (
-                id, user_id, amount, type, description, created_at
-            ) VALUES (
-                gen_random_uuid(), sender_id, 1, test_type, 'Test', NOW()
-            );
-            
-            -- Si llegamos aquí, este tipo es válido
-            valid_type := test_type;
-            
-            -- Eliminar el registro de prueba
-            DELETE FROM token_transactions 
-            WHERE user_id = sender_id 
-            AND amount = 1 
-            AND description = 'Test' 
-            AND type = test_type;
-            
-            RAISE NOTICE 'Tipo válido encontrado: %', valid_type;
-            EXIT; -- Salir del loop
-            
-        EXCEPTION WHEN OTHERS THEN
-            -- Este tipo no es válido, continuar con el siguiente
-            CONTINUE;
-        END;
-    END LOOP;
+    -- Usar 'transfer' como tipo por defecto (ya que sabemos que funciona)
+    valid_type := 'transfer';
     
     -- Generar IDs únicos
     operation_id := gen_random_uuid();
@@ -302,6 +273,6 @@ DO $$
 BEGIN
     RAISE NOTICE '==============================================';
     RAISE NOTICE 'FUNCIÓN DE TRANSFERENCIA COMPLETA INSTALADA';
-    RAISE NOTICE 'Versión mejorada con detección automática de tipos';
+    RAISE NOTICE 'Versión mejorada con tipo "transfer" como predeterminado';
     RAISE NOTICE '==============================================';
 END $$;
